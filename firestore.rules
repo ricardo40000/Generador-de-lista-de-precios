@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (matches Firebase Auth UID)
+    // Fields:
+    //   - headerImage: string (optional, base64 data URI)
+    //   - rows: list of objects (required)
+    //     - id: string
+    //     - item: string
+    //     - description: string
+    //     - ref: string
+    //     - visible: boolean
+    //   - updatedAt: timestamp (optional)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidRow(row) {
+      return row is map &&
+             row.keys().hasAll(['id', 'item', 'description', 'ref', 'visible']) &&
+             row.id is string &&
+             row.item is string &&
+             row.description is string &&
+             row.ref is string &&
+             row.visible is bool;
+    }
+
+    function areAllRowsValid(rowsList) {
+      // Since we can't iterate easily, we check if it's a list and size limits.
+      // In a real app, we might limit the number of rows (e.g., 50).
+      return rowsList is list && rowsList.size() <= 100;
+    }
+
+    function isValidUserDoc(data) {
+      return data.keys().hasAll(['rows']) &&
+             areAllRowsValid(data.rows) &&
+             (!('headerImage' in data) || data.headerImage == null || data.headerImage is string) &&
+             (!('updatedAt' in data) || data.updatedAt is string);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserDoc(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserDoc(request.resource.data);
+      allow delete: if isOwner(userId);
+    }
+  }
+}

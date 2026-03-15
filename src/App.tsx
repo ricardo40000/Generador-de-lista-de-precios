@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Minus, Undo, Redo, Download, Image as ImageIcon } from 'lucide-react';
+import { Plus, Minus, Undo, Redo, Download, Image as ImageIcon, LogOut } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { formatInTimeZone } from 'date-fns-tz';
+import { auth, db, onAuthStateChanged, doc, setDoc, onSnapshot, signOut } from './firebase';
+import Login from './components/Login';
 
 type RowData = {
   id: string;
@@ -17,23 +19,13 @@ type AppState = {
   rows: RowData[];
 };
 
-const initialRows: RowData[] = [
-  { id: '1', item: 'Cemento 42 Kg', description: 'is simply dummy text of the printing and typesetting', ref: '9', visible: true },
-  { id: '2', item: 'Viga Doble T', description: "industry. Lorem Ipsum has been the industry's standard", ref: '80', visible: true },
-  { id: '3', item: 'Cabilla 1/2"', description: 'dummy text ever since the 1500s, when an unknown', ref: '3', visible: true },
-  { id: '4', item: 'Cabilla 1"', description: 'printer took a galley of type and scrambled it to make a', ref: '7', visible: true },
-  { id: '5', item: 'Cabilla 2"', description: 'type specimen book. It has survived not only five', ref: '515', visible: true },
-  { id: '6', item: 'Piedra Picada', description: 'centuries, but also the leap into electronic typesetting,', ref: '45', visible: true },
-  { id: '7', item: 'Arena Lavada', description: 'remaining essentially unchanged. It was popularised in', ref: '561', visible: true },
-  { id: '8', item: 'Polvillo', description: 'the 1960s with the release of Letraset sheets containing', ref: '525', visible: true },
-  { id: '9', item: 'Lamina de Zinc', description: 'Lorem Ipsum passages, and more recently with desktop', ref: '858', visible: true },
-  { id: '10', item: 'Tubo Estructural', description: 'It is a long established fact that a reader will be distracted', ref: '455', visible: true },
-  { id: '11', item: 'Bloque Arcilla #10', description: 'by the readable content of a page when looking at its', ref: '58', visible: true },
-  { id: '12', item: 'Bloque Arcilla #12', description: 'layout. The point of using Lorem Ipsum is that it has a', ref: '87', visible: true },
-  { id: '13', item: 'Bloque de Cemento', description: 'more-or-less normal distribution of letters, as opposed to', ref: '796', visible: true },
-  { id: '14', item: 'Dry Wall', description: "using 'Content here, content here', making it look like", ref: '65', visible: true },
-  { id: '15', item: 'Cal en pasta', description: 'readable English. Many desktop publishing packages', ref: '75', visible: true },
-];
+const initialRows: RowData[] = Array.from({ length: 14 }, (_, i) => ({
+  id: String(i + 1),
+  item: '',
+  description: '',
+  ref: '',
+  visible: true,
+}));
 
 const initialState: AppState = {
   headerImage: null,
@@ -57,14 +49,59 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: () => void 
 );
 
 export default function App() {
+  const [user, setUser] = useState<any>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [state, setState] = useState<AppState>(initialState);
   const [history, setHistory] = useState<AppState[]>([initialState]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentDate, setCurrentDate] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const saveTimer = useRef<NodeJS.Timeout | null>(null);
+  const isFirstLoad = useRef(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthReady(true);
+      if (!currentUser) {
+        setState(initialState);
+        setHistory([initialState]);
+        setCurrentIndex(0);
+        isFirstLoad.current = true;
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user || !isAuthReady) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists() && isFirstLoad.current) {
+        const data = docSnap.data();
+        if (data.rows) {
+          const loadedState = {
+            headerImage: data.headerImage || null,
+            rows: data.rows,
+          };
+          setState(loadedState);
+          setHistory([loadedState]);
+          setCurrentIndex(0);
+        }
+        isFirstLoad.current = false;
+      } else if (!docSnap.exists() && isFirstLoad.current) {
+        isFirstLoad.current = false;
+      }
+    }, (error) => {
+      console.error('Firestore Error: ', error);
+    });
+
+    return () => unsubscribe();
+  }, [user, isAuthReady]);
 
   useEffect(() => {
     const updateDate = () => {
@@ -89,6 +126,24 @@ export default function App() {
     debounceTimer.current = setTimeout(() => {
       commitState(newState);
     }, 500);
+
+    if (user && !isFirstLoad.current) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      setIsSaving(true);
+      saveTimer.current = setTimeout(async () => {
+        try {
+          await setDoc(doc(db, 'users', user.uid), {
+            headerImage: newState.headerImage,
+            rows: newState.rows,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('Error saving to Firestore:', error);
+        } finally {
+          setIsSaving(false);
+        }
+      }, 1000);
+    }
   };
 
   const undo = () => {
@@ -216,9 +271,65 @@ export default function App() {
   }
   if (pages.length === 0) pages.push([]);
 
+  if (!isAuthReady) {
+    return <div className="min-h-screen flex items-center justify-center bg-gray-100">Cargando...</div>;
+  }
+
+  if (!user) {
+    return <Login />;
+  }
+
   return (
     <div className="min-h-screen bg-[#f3f4f6] py-8 flex flex-col items-center font-sans text-[#111827]">
       
+      {/* Controls */}
+      <div className="max-w-4xl mx-auto mb-6 bg-white p-4 rounded-xl shadow-sm flex flex-wrap gap-4 items-center justify-between sticky top-4 z-50 w-full">
+        <div className="flex gap-2">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Deshacer"
+          >
+            <Undo className="w-5 h-5 text-gray-700" />
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            className="p-2 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Rehacer"
+          >
+            <Redo className="w-5 h-5 text-gray-700" />
+          </button>
+        </div>
+        
+        <div className="flex gap-3 items-center">
+          {isSaving && <span className="text-sm text-gray-500 mr-2">Guardando...</span>}
+          <button
+            onClick={handleImageUpload}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+          >
+            <ImageIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">Cambiar Membrete</span>
+          </button>
+          <button
+            onClick={generatePDF}
+            disabled={isExporting}
+            className="flex items-center gap-2 px-4 py-2 bg-[#2B5B5A] text-white rounded-lg hover:bg-[#1f4241] transition-colors font-medium disabled:opacity-70"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">{isExporting ? 'Generando...' : 'Exportar PDF'}</span>
+          </button>
+          <button
+            onClick={() => signOut(auth)}
+            className="flex items-center gap-2 px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium ml-2"
+            title="Cerrar Sesión"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
       {/* Document Pages */}
       <div className="flex flex-col gap-8 items-center w-full">
         {pages.map((pageRows, pageIndex) => (

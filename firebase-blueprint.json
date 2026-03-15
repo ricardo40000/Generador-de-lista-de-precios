@@ -1,0 +1,37 @@
+{
+  "entities": {
+    "RowData": {
+      "title": "Row Data",
+      "description": "A single row in the PDF generator table.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "item": { "type": "string" },
+        "description": { "type": "string" },
+        "ref": { "type": "string" },
+        "visible": { "type": "boolean" }
+      },
+      "required": ["id", "item", "description", "ref", "visible"]
+    },
+    "UserDocument": {
+      "title": "User Document",
+      "description": "Stores the user's saved state for the PDF generator.",
+      "type": "object",
+      "properties": {
+        "headerImage": { "type": "string", "description": "Base64 encoded image or null" },
+        "rows": {
+          "type": "array",
+          "items": { "$ref": "RowData" }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["rows"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "UserDocument" },
+      "description": "Stores the saved state for each user."
+    }
+  }
+}
