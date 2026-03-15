@@ -1,0 +1,5 @@
+{
+  "name": "Generador de Documentos PDF",
+  "description": "Aplicación para crear listas de materiales o documentos con encabezado personalizado, filas editables, y exportación a PDF.",
+  "requestFramePermissions": []
+}
