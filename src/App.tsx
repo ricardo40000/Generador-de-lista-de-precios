@@ -238,6 +238,7 @@ export default function App() {
           useCORS: true,
           logging: false,
           backgroundColor: '#ffffff',
+          windowWidth: 1024,
         });
 
         const imgData = canvas.toDataURL('image/png');
@@ -335,8 +336,8 @@ export default function App() {
         {pages.map((pageRows, pageIndex) => (
           <div
             key={pageIndex}
-            className={`pdf-page bg-[#ffffff] w-full max-w-[210mm] relative transition-all duration-300 ${
-              isExporting ? 'p-[15mm]' : 'p-6 sm:p-10'
+            className={`pdf-page bg-[#ffffff] relative transition-all duration-300 ${
+              isExporting ? 'w-[210mm] p-[15mm]' : 'w-full max-w-[210mm] p-6 sm:p-10'
             }`}
             style={{ minHeight: '297mm', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}
           >
